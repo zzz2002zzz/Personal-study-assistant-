@@ -8,8 +8,8 @@ agent** classifies it, hands a structured message to an **Answerer agent**,
 which retrieves the relevant notes and generates a grounded answer with a
 built-in self-critique step.
 
-**Live demo:** _[add your Streamlit Community Cloud URL here after deployment]_
-**Repo:** https://github.com/\<your-username\>/Personal-study-assistant-
+**Live demo:** https://k4twdejretsk43rgvwu34r.streamlit.app
+**Repo:** https://github.com/zzz2002zzz/Personal-study-assistant-
 
 ---
 
