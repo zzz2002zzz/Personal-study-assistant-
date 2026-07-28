@@ -37,7 +37,7 @@ flowchart LR
     ORCH --> A[Agent 2: Answerer\nOpenRouter - Llama 3.3 70B]
     A --> RET[Retriever\nrag/retriever.py]
     RET --> VS[(Chroma Vector Store)]
-    VS --> CORP[/corpus/*.md - 11 note files/]
+    VS --> CORP[/corpus_pdf/*.pdf - 20 PM note & glossary files/]
     A --> REF[Reflection pass\nGroq - Llama 3.1 8B]
     REF --> A
     A -- result dict --> ORCH
@@ -101,8 +101,15 @@ sequenceDiagram
     A->>A: reflect(draft, context) [Groq]
     A-->>O: result dict (answer, sources, reflection)
     O-->>UI: result dict
-    UI-->>U: Answer + sources + reflection panel
+    UI-->>U: Clean answer + detected category
 ```
+
+**Note:** the retrieved-chunks, reflection, and raw agent-message JSON
+shown in the diagram above are deliberately not displayed in the deployed
+end-user UI (kept clean and simple for a student audience). They are
+fully demonstrated instead via `agent_testing_colab.ipynb`, which runs
+both agents directly and prints this exact structured output for
+verification.
 
 ---
 
@@ -127,20 +134,28 @@ questions, which need careful multi-step formula reasoning.
 
 ## 6. RAG Pipeline
 
-**Corpus**: 11 original markdown notes files under `corpus/`, one per PM
-topic area (see list in Section 1), written from scratch (not copied from
-any textbook) — roughly 6,100 words total.
+**Corpus**: 20 original PDF files under `corpus_pdf/` — 11 main topic
+documents (one per PM area, see list in Section 1) plus 9 companion
+"Key Terms Glossary" PDFs for the topics with the densest terminology
+(Risk, HR, Communication, Agile, Scope, Cost/EVM, Procurement, Selection,
+Time Management). All content is written from scratch, not copied from
+any textbook. PDFs are generated with ReportLab from the same original
+notes, with each section marked by an explicit `SECTION: <heading>`
+label embedded in the PDF's text stream (see `make_pdf_corpus.py`).
 
 **Chunking strategy** (`rag/ingest.py`):
-1. Each file is split on `## ` markdown headers, so a chunk never crosses
-   a topic boundary mid-section.
-2. Within a section, if the section exceeds 180 words, a **sliding window**
+1. Text is extracted per PDF with `pypdf`, then split on `SECTION:`
+   markers, so a chunk never crosses a topic boundary mid-section —
+   the PDF equivalent of splitting on markdown `## ` headers.
+2. Within a section, if it exceeds 180 words, a **sliding window**
    (180 words, 40-word overlap) further splits it so no formula or fact is
    cut exactly at a boundary.
 3. Every chunk is prefixed with `[filename | section heading]` before
    embedding — this lets the embedding capture topic + content together,
    which measurably improves retrieval precision for short queries.
-4. Result: **84 chunks** from 11 files.
+4. Result: **174 chunks** from 20 PDFs (up from 84 chunks in an earlier
+   11-file markdown version of this corpus — the glossary PDFs added
+   meaningful extra definition-lookup coverage).
 
 **Embedding model**: `sentence-transformers/all-MiniLM-L6-v2` — free, runs
 locally (no per-query API cost or extra latency for embeddings), 384-dim,
@@ -148,8 +163,8 @@ fast enough to embed the whole corpus in seconds on CPU (important for
 Streamlit Community Cloud's free-tier compute).
 
 **Vector store**: **Chroma** (`PersistentClient`, local directory
-`chroma_db/`, excluded from git and rebuilt automatically from `corpus/`
-on first run) — zero cost, no external account needed, appropriate for a
+`chroma_db/`, excluded from git and rebuilt automatically from
+`corpus_pdf/` on first run) — zero cost, no external account needed, appropriate for a
 single-user demo app.
 
 **Retrieval evaluation**: see [`eval/retrieval_eval.md`](eval/retrieval_eval.md)
@@ -161,7 +176,7 @@ the correct section was retrieved.
 ## 7. Setup Instructions
 
 ```bash
-git clone https://github.com/<your-username>/Personal-study-assistant-.git
+git clone https://github.com/zzz2002zzz/Personal-study-assistant-.git
 cd Personal-study-assistant-
 python -m venv venv
 source venv/bin/activate       # Windows: venv\Scripts\activate
@@ -178,11 +193,11 @@ streamlit run app.py
 1. Push this repo to GitHub (public, or private with the lecturer added as a collaborator).
 2. Go to [share.streamlit.io](https://share.streamlit.io), connect the repo, set the entry point to `app.py`.
 3. Under **App settings → Secrets**, paste:
-   ```toml
+```toml
    GROQ_API_KEY = "..."
    OPENROUTER_API_KEY = "..."
-   ```
-4. Deploy. The Chroma vector store is built automatically from `corpus/*.md` on first run.
+```
+4. Deploy. The Chroma vector store is built automatically from `corpus_pdf/*.pdf` on first run.
 
 ---
 
@@ -211,16 +226,32 @@ streamlit run app.py
   (a few seconds' delay, not a correctness issue).
 - No conversation memory across turns — each question is answered
   independently.
+- The deployed UI intentionally hides retrieved chunks, the reflection
+  result, and the raw agent-to-agent message for a cleaner end-user
+  experience; this internal detail is still fully inspectable via
+  `agent_testing_colab.ipynb` or by reading the code directly.
 
 ---
 
 ## 10. Repo/Branching Practice
 
 - `main` — final merged, working version.
-- `feature/rag-pipeline` — corpus, chunking, embeddings, Chroma store.
+- `feature/rag-pipeline` — original corpus, chunking, embeddings, Chroma store.
 - `feature/agent-orchestration` — Router agent, Answerer agent, protocol, orchestrator, reflection step.
 - `feature/streamlit-ui` — `app.py`, error handling, sidebar.
 - `feature/model-router` — model selection tuning, comparison table, README docs.
+- `feature/pdf-corpus` — replaced the markdown corpus with a 20-file PDF corpus (11 topic docs + 9 glossary docs), rewrote `rag/ingest.py` to extract and chunk PDF text via `pypdf`.
+- `feature/clean-ui` — removed developer-facing debug panels from the Streamlit UI for a cleaner end-user experience.
 
 Each merged via a Pull Request with a descriptive title. Commit messages
 follow semantic conventions (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`).
+
+---
+
+## 11. Additional Materials
+
+- **`agent_testing_colab.ipynb`** — a Google Colab notebook that clones
+  this repo and runs the Router agent, Answerer agent, and full
+  orchestrated pipeline directly, printing the structured agent-to-agent
+  message and reflection output for independent verification outside the
+  Streamlit UI.
