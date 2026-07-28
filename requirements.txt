@@ -3,3 +3,4 @@ chromadb>=0.5
 sentence-transformers>=3.0
 groq>=0.9
 requests>=2.31
+pypdf>=5.0
