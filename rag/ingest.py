@@ -1,29 +1,32 @@
 """
-RAG ingestion: load the PM notes corpus, chunk it, embed with a local
-sentence-transformers model, and persist to a Chroma vector store.
+RAG ingestion: load the PM notes corpus (20 PDF files), extract text,
+chunk it, embed with a local sentence-transformers model, and persist to
+a Chroma vector store.
 
 Chunking strategy
 ------------------
-Each note file is organised around markdown '## ' section headers (one
-per PM sub-topic, e.g. "Risk Response Strategies"). We first split each
-file on those headers so a chunk never crosses a topic boundary halfway.
-Within a section, if the section is longer than CHUNK_WORDS words, we
-apply a sliding window (CHUNK_WORDS words, OVERLAP_WORDS overlap) so a
-single fact/formula is never cut in half exactly at a chunk boundary.
+Each PDF is generated with an explicit "SECTION: <heading>" marker at the
+start of every topic/term inside it (visible as a bold sub-heading in the
+PDF, but also present as literal text in the extracted content stream).
+We split the extracted text on those markers so a chunk never crosses a
+topic boundary halfway - the PDF equivalent of splitting a markdown file
+on "## " headers.
+
+Within a section, if it is longer than CHUNK_WORDS words, a sliding
+window (CHUNK_WORDS words, OVERLAP_WORDS overlap) further splits it so a
+single fact/formula is never cut exactly in half at a chunk boundary.
 
 Every chunk is prefixed with "[filename | section heading]" before being
-embedded. This means the embedding captures topic context *and* content,
-which noticeably improves retrieval precision for short queries like
-"what is scope creep" versus embedding raw body text alone.
+embedded, so the embedding captures topic + content together, which
+measurably improves retrieval precision for short queries.
 
-Embedding model: sentence-transformers/all-MiniLM-L6-v2
-  - Free, runs locally (no API cost/latency for embeddings).
-  - 384-dim, fast enough to embed the whole corpus in seconds on CPU,
-    which matters for Streamlit Community Cloud's free-tier compute.
+PDF text extraction: pypdf (pure Python, no external system
+dependencies - important for Streamlit Community Cloud's free tier).
 
-Vector store: Chroma (persistent, local directory on disk)
-  - Zero-cost, no external service/account needed, works fine for a
-    single-user demo app deployed on Streamlit Cloud.
+Embedding model: sentence-transformers/all-MiniLM-L6-v2 (free, local,
+384-dim, fast enough to embed the whole corpus in seconds on CPU).
+
+Vector store: Chroma (persistent, local directory on disk).
 """
 
 import os
@@ -31,26 +34,37 @@ import re
 import glob
 import chromadb
 from chromadb.utils import embedding_functions
+from pypdf import PdfReader
 
-CORPUS_DIR = os.path.join(os.path.dirname(__file__), "..", "corpus")
+CORPUS_DIR = os.path.join(os.path.dirname(__file__), "..", "corpus_pdf")
 DB_DIR = os.path.join(os.path.dirname(__file__), "..", "chroma_db")
 COLLECTION_NAME = "pm_notes"
 
 CHUNK_WORDS = 180
 OVERLAP_WORDS = 40
 
+SECTION_MARKER = "SECTION:"
+
+
+def extract_pdf_text(filepath: str) -> str:
+    reader = PdfReader(filepath)
+    pages_text = [page.extract_text() or "" for page in reader.pages]
+    return "\n".join(pages_text)
+
 
 def split_into_sections(text: str):
-    """Split a markdown file into (heading, body) tuples on '## ' headers."""
-    parts = re.split(r"\n(?=## )", text)
+    """Split extracted PDF text into (heading, body) tuples on 'SECTION:' markers."""
+    parts = re.split(rf"\n(?=\s*{SECTION_MARKER} )", text)
     sections = []
     for part in parts:
         part = part.strip()
-        if not part:
+        if not part.startswith(SECTION_MARKER):
+            # This is the document title / preamble before the first
+            # SECTION marker - not a chunkable section on its own.
             continue
-        lines = part.split("\n", 1)
-        heading = lines[0].lstrip("#").strip()
-        body = lines[1].strip() if len(lines) > 1 else ""
+        first_line, _, rest = part.partition("\n")
+        heading = first_line.replace(SECTION_MARKER, "", 1).strip()
+        body = rest.strip()
         if body:
             sections.append((heading, body))
     return sections
@@ -73,11 +87,10 @@ def sliding_window_chunks(words, size=CHUNK_WORDS, overlap=OVERLAP_WORDS):
 
 def build_chunks():
     chunks, metadatas, ids = [], [], []
-    files = sorted(glob.glob(os.path.join(CORPUS_DIR, "*.md")))
+    files = sorted(glob.glob(os.path.join(CORPUS_DIR, "*.pdf")))
     for filepath in files:
         filename = os.path.basename(filepath)
-        with open(filepath, "r", encoding="utf-8") as f:
-            text = f.read()
+        text = extract_pdf_text(filepath)
         sections = split_into_sections(text)
         for sec_idx, (heading, body) in enumerate(sections):
             words = body.split()
