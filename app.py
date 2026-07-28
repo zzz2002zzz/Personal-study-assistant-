@@ -72,21 +72,7 @@ if st.button("Ask", type="primary") and query.strip():
     st.write(result["answer"])
 
     if result.get("error"):
-        st.warning("Part of the pipeline hit an error - the message above is a graceful fallback response.")
-
-    with st.expander("🔍 Retrieved note chunks (RAG context)"):
-        if not result.get("sources"):
-            st.write("No chunks retrieved.")
-        for i, src in enumerate(result.get("sources", []), 1):
-            st.markdown(f"**{i}. {src['source']} — {src['heading']}**  (distance: {src['distance']:.3f})")
-            preview = src["text"][:400] + ("..." if len(src["text"]) > 400 else "")
-            st.text(preview)
-
-    with st.expander("🔁 Reflection / self-critique (Agent 2's second pass)"):
-        st.json(result.get("reflection") or {})
-
-    with st.expander("📨 Agent-to-agent message (Router → Answerer)"):
-        st.json(result.get("route_message", {}))
+        st.warning("Something went wrong generating a complete answer - the message above is a graceful fallback response.")
 
 st.divider()
 st.caption(
